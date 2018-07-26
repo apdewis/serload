@@ -52,6 +52,14 @@ int8_t recv(uint8_t *buf, uint32_t len)
     return 0;
 }
 
+void wordToBytes(uint8_t *buf, uint32_t word)
+{
+    buf[0] = (uint8_t)(word);
+    buf[1] = (uint8_t)(word >> 8);
+    buf[2] = (uint8_t)(word >> 16);
+    buf[3] = (uint8_t)(word >> 24);
+}
+
 int main(int argc, const char **argv)
 {
     int fd, c, res;
@@ -137,10 +145,7 @@ int main(int argc, const char **argv)
         exit(-1);
     }
     
-    buf[0] = (uint8_t)(base);
-    buf[1] = (uint8_t)(base >> 8);
-    buf[2] = (uint8_t)(base >> 16);
-    buf[3] = (uint8_t)(base >> 24);
+    wordToBytes(buf, base);
     printf("%x \n", buf[3]);
     if (send(buf, 4) == 0) 
     {
@@ -152,10 +157,7 @@ int main(int argc, const char **argv)
         exit(-1);
     }
 
-    buf[0] = (uint8_t)(st.st_size);
-    buf[1] = (uint8_t)(st.st_size >> 8);
-    buf[2] = (uint8_t)(st.st_size >> 16);
-    buf[3] = (uint8_t)(st.st_size >> 24);
+    wordToBytes(buf, st.st_size);
     if (send(buf, 4) == 0) 
     {
         printf("size ack\n");
@@ -193,10 +195,7 @@ int main(int argc, const char **argv)
         exit(-1);
     }
 
-    buf[0] = (uint8_t)(base);
-    buf[1] = (uint8_t)(base >> 8);
-    buf[2] = (uint8_t)(base >> 16);
-    buf[3] = (uint8_t)(base >> 24);
+    wordToBytes(buf, base);
     if (send(buf, 4) == 0) 
     {
         printf("jump adr ack\n");
