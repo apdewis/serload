@@ -14,10 +14,7 @@
   
 #define BAUDRATE B9600
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
-#define FALSE 0
-#define TRUE 1
-  
-volatile int STOP=FALSE; 
+
 uint32_t base = 0x10000000;
 int serdev;
 uint8_t buf[256];
