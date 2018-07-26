@@ -8,11 +8,11 @@
 #include <strings.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <argparse.h>
 
 #include "commands.h"
   
 #define BAUDRATE B9600
-#define MODEMDEVICE "/dev/ttyS7"
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FALSE 0
 #define TRUE 1
@@ -21,6 +21,13 @@ volatile int STOP=FALSE;
 uint32_t base = 0x10000000;
 int serdev;
 uint8_t buf[256];
+
+static const char *const usage[] = 
+{
+    "serload [options] [[--] args]",
+    "serload [options]",
+    NULL,
+};
 
 int8_t send(uint8_t *buf, uint32_t len)
 {
@@ -48,26 +55,51 @@ int8_t recv(uint8_t *buf, uint32_t len)
     return 0;
 }
 
-int main(int argc, char* argv[])
+int main(int argc, const char **argv)
 {
-    printf("Initialising\n");
-    printf("Opening %s\n", argv[1]);
-
     int fd, c, res;
     FILE *fd_data;
     struct termios oldtio,newtio;
+    const char *port = NULL;
+    const char *file = NULL;
     
     struct stat st;
-    
-    serdev = open(MODEMDEVICE, O_RDWR | O_NOCTTY  ); 
-    if (serdev <0) {perror(MODEMDEVICE); exit(-1); }
-    printf("Opened %s\n", MODEMDEVICE);
-    
-    fd_data = fopen(argv[1], "rb");
-    if (fd_data == NULL) {perror("FILE"); exit(-1); }
-    printf("Opened %s\n", argv[1]);
+    struct argparse_option options[] = {
+        OPT_GROUP("Basic options"),
+        OPT_STRING('f', "file", &file, "path to input file"),
+        OPT_STRING('p', "port", &port, "serial device"),
+        OPT_END()
+    };
 
-    if (stat(argv[1], &st) != 0) {perror("ST"); exit(-1); }
+    struct argparse argparse;
+    argparse_init(&argparse, options, usage, 0);
+    argparse_describe(&argparse, "\nA serial program loader for use with Queball's BROM.", "\n");
+    argc = argparse_parse(&argparse, argc, argv);
+
+    if(file == NULL)
+    {
+        printf("filename required\n");
+        return -1;
+    }
+
+    if(port == NULL)
+    {
+        printf("serial device required\n");
+        return -1;
+    }
+
+    printf("Initialising\n");
+    printf("Opening %s\n", file);
+    
+    serdev = open(port, O_RDWR | O_NOCTTY  ); 
+    if (serdev <0) {perror(port); exit(-1); }
+    printf("Opened %s\n", port);
+    
+    fd_data = fopen(file, "rb");
+    if (fd_data == NULL) {perror("FILE"); exit(-1); }
+    printf("Opened %s\n", file);
+
+    if (stat(file, &st) != 0) {perror("ST"); exit(-1); }
 
     tcgetattr(fd,&oldtio); /* save current port settings */
     
