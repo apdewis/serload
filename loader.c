@@ -18,6 +18,13 @@
 uint32_t base = 0x10000000;
 int serdev;
 uint8_t buf[256];
+int fd, c, res;
+FILE *fd_data;
+struct termios oldtio,newtio;
+const char *port = NULL;
+const char *file = NULL;
+struct stat st;
+uint8_t *file_data;
 
 static const char *const usage[] = 
 {
@@ -25,6 +32,16 @@ static const char *const usage[] =
     "serload [options]",
     NULL,
 };
+
+void terminate(int code)
+{
+    tcsetattr(fd,TCSANOW,&oldtio);
+    if(file_data)
+    {
+        free(file_data);
+    }
+    exit(code);
+}
 
 int8_t send(uint8_t *buf, uint32_t len)
 {
@@ -60,15 +77,8 @@ void wordToBytes(uint8_t *buf, uint32_t word)
     buf[3] = (uint8_t)(word >> 24);
 }
 
-int main(int argc, const char **argv)
+void process_args(int argc, const char **argv)
 {
-    int fd, c, res;
-    FILE *fd_data;
-    struct termios oldtio,newtio;
-    const char *port = NULL;
-    const char *file = NULL;
-    
-    struct stat st;
     struct argparse_option options[] = {
         OPT_GROUP("Basic options"),
         OPT_STRING('f', "file", &file, "path to input file"),
@@ -84,18 +94,18 @@ int main(int argc, const char **argv)
     if(file == NULL)
     {
         printf("filename required\n");
-        return -1;
+        terminate(-1);
     }
 
     if(port == NULL)
     {
         printf("serial device required\n");
-        return -1;
+        terminate(-1);
     }
+}
 
-    printf("Initialising\n");
-    printf("Opening %s\n", file);
-    
+void init()
+{
     serdev = open(port, O_RDWR | O_NOCTTY  ); 
     if (serdev <0) {perror(port); exit(-1); }
     printf("Opened %s\n", port);
@@ -121,6 +131,15 @@ int main(int argc, const char **argv)
     
     tcflush(fd, TCIFLUSH);
     tcsetattr(fd,TCSANOW,&newtio);
+}
+
+int main(int argc, const char **argv)
+{   
+    process_args(argc, argv);
+    printf("Initialising\n");
+    printf("Opening %s\n", file);
+    
+    init();
     
     printf("Waiting for device\n");
     buf[0] = CMD_CHKRDY;
@@ -131,7 +150,7 @@ int main(int argc, const char **argv)
     else
     { 
         printf("readback: %x\n", buf[0]);
-        exit(-1);
+        terminate(-1);
     }
     
     buf[0] = CMD_WRITE;
@@ -142,7 +161,7 @@ int main(int argc, const char **argv)
     else
     {
         printf("readback: %x\n", buf[0]);
-        exit(-1);
+        terminate(-1);
     }
     
     wordToBytes(buf, base);
@@ -154,7 +173,7 @@ int main(int argc, const char **argv)
     else
     {
         printf("readback: %x\n", buf[0]);
-        exit(-1);
+        terminate(-1);
     }
 
     wordToBytes(buf, st.st_size);
@@ -165,23 +184,22 @@ int main(int argc, const char **argv)
     else
     {
         printf("readback: %x\n", buf[0]);
-        exit(-1);
+        terminate(-1);
     }
 
-    uint8_t *file_data = malloc(st.st_size);
+    file_data = malloc(st.st_size);
     if(fread(file_data, 1, st.st_size, fd_data) != st.st_size)
     {
         fputs ("Reading error\n",stderr); 
-        exit (3);
+        terminate(-1);
     }
 
     if(send(file_data, st.st_size) != 0)
     {
         printf("Send error\n");
-        exit(-1);
+        terminate(-1);
     } else {
         printf("ack data \n");
-       
     }
 
     buf[0] = CMD_JUMP;
@@ -192,7 +210,7 @@ int main(int argc, const char **argv)
     else
     {
         printf("readback: %x\n", buf[0]);
-        exit(-1);
+        terminate(-1);
     }
 
     wordToBytes(buf, base);
@@ -203,12 +221,8 @@ int main(int argc, const char **argv)
     else
     {
         printf("readback: %x\n", buf[0]);
-        exit(-1);
+        terminate(-1);
     }
 
-    tcsetattr(fd,TCSANOW,&oldtio);
-    if(file_data)
-    {
-        free(file_data);
-    }
+    terminate(0);
 }
