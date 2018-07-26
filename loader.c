@@ -80,6 +80,7 @@ void wordToBytes(uint8_t *buf, uint32_t word)
 void process_args(int argc, const char **argv)
 {
     struct argparse_option options[] = {
+        OPT_HELP(),
         OPT_GROUP("Basic options"),
         OPT_STRING('f', "file", &file, "path to input file"),
         OPT_STRING('p', "port", &port, "serial device"),
@@ -93,12 +94,14 @@ void process_args(int argc, const char **argv)
 
     if(file == NULL)
     {
+        argparse_usage(&argparse);
         printf("filename required\n");
         terminate(-1);
     }
 
     if(port == NULL)
     {
+        argparse_usage(&argparse);
         printf("serial device required\n");
         terminate(-1);
     }
