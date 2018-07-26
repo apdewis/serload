@@ -22,7 +22,6 @@ uint32_t base = 0x10000000;
 int serdev;
 uint8_t buf[256];
 
-
 int8_t send(uint8_t *buf, uint32_t len)
 {
     int32_t res;
@@ -87,7 +86,7 @@ int main(int argc, char* argv[])
     tcsetattr(fd,TCSANOW,&newtio);
     
     printf("Waiting for device\n");
-    buf[0] = 0x0;
+    buf[0] = CMD_CHKRDY;
     if (send(buf, 1) == 0)
     {
         printf("device ready, sending data\n");
@@ -98,7 +97,7 @@ int main(int argc, char* argv[])
         exit(-1);
     }
     
-    buf[0] = 0x01;
+    buf[0] = CMD_WRITE;
     if (send(buf, 1) == 0) 
     {
         printf("write command ack\n");
@@ -154,7 +153,7 @@ int main(int argc, char* argv[])
        
     }
 
-    buf[0] = 0x04;
+    buf[0] = CMD_JUMP;
     if (send(buf, 1) == 0) 
     {
         printf("jump command ack\n");
