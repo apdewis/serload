@@ -113,11 +113,9 @@ void init()
 {
     serdev = open(port, O_RDWR | O_NOCTTY  ); 
     if (serdev <0) {perror(port); exit(-1); }
-    printf("Opened %s\n", port);
     
     fd_data = fopen(file, "rb");
     if (fd_data == NULL) {perror("FILE"); exit(-1); }
-    printf("Opened %s\n", file);
 
     if (stat(file, &st) != 0) {perror("ST"); exit(-1); }
 
@@ -140,62 +138,46 @@ void init()
 
 int main(int argc, const char **argv)
 {   
-    process_args(argc, argv);
-    printf("Initialising\n");
-    printf("Opening %s\n", file);
-    
+    process_args(argc, argv);    
     init();
     
-    printf("Waiting for device\n");
+    printf("Waiting for device\n\r");
     buf[0] = CMD_CHKRDY;
     if (send(buf, 1) == 0)
     {
-        printf("device ready, sending data\n");
+        printf("sending data\n\r");
     }
     else
     { 
-        printf("readback: %x\n", buf[0]);
+        printf("invalid response\n\r");
         terminate(-1);
     }
     
     buf[0] = CMD_WRITE;
-    if (send(buf, 1) == 0) 
+    if (send(buf, 1) != 0) 
     {
-        printf("write command ack\n");
-    }
-    else
-    {
-        printf("readback: %x\n", buf[0]);
+        printf("invalid response\n\r");
         terminate(-1);
     }
     
     wordToBytes(buf, base);
-    printf("%x \n", buf[3]);
-    if (send(buf, 4) == 0) 
+    if (send(buf, 4) != 0) 
     {
-        printf("dest addr: %x\n", base);
-    }
-    else
-    {
-        printf("readback: %x\n", buf[0]);
+        printf("invalid response\n\r");
         terminate(-1);
     }
 
     wordToBytes(buf, st.st_size);
-    if (send(buf, 4) == 0) 
+    if (send(buf, 4) != 0)
     {
-        printf("size ack\n");
-    }
-    else
-    {
-        printf("readback: %x\n", buf[0]);
+        printf("invalid response\n\r");
         terminate(-1);
     }
 
     file_data = malloc(st.st_size);
     if(fread(file_data, 1, st.st_size, fd_data) != st.st_size)
     {
-        fputs ("Reading error\n",stderr); 
+        fputs ("File read error\n\r",stderr); 
         terminate(-1);
     }
 
@@ -203,29 +185,20 @@ int main(int argc, const char **argv)
     {
         printf("Send error\n");
         terminate(-1);
-    } else {
-        printf("ack data \n");
     }
 
+    printf("Running program \n\r");
     buf[0] = CMD_JUMP;
-    if (send(buf, 1) == 0) 
+    if (send(buf, 1) != 0) 
     {
-        printf("jump command ack\n");
-    }
-    else
-    {
-        printf("readback: %x\n", buf[0]);
+        printf("invalid response\n");
         terminate(-1);
     }
 
     wordToBytes(buf, base);
-    if (send(buf, 4) == 0) 
+    if (send(buf, 4) != 0) 
     {
-        printf("jump adr ack\n");
-    }
-    else
-    {
-        printf("readback: %x\n", buf[0]);
+        printf("invalid response\n");
         terminate(-1);
     }
 
