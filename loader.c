@@ -15,6 +15,7 @@
 #define BAUDRATE B9600
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define DEFAULT_BASE 0x1000000
+#define BLOCK_SIZE 256
 
 uint32_t base = 0x10000000;
 int serdev;
@@ -47,9 +48,10 @@ void terminate(int code)
 int8_t send(uint8_t *buf, uint32_t len)
 {
     int32_t res;
+    uint8_t rsp;
     res = write(serdev,buf,len);
-    res = read(serdev,buf,1);
-    if(buf[0] == ACK)
+    res = read(serdev,&rsp,1);
+    if(rsp == ACK)
     {
         return 0;
     }
@@ -59,12 +61,12 @@ int8_t send(uint8_t *buf, uint32_t len)
     }
 }
 
-int8_t recv(uint8_t *buf, uint32_t len)
+int8_t recv(uint8_t *rsp, uint32_t len)
 {
     int32_t res;
     for(uint8_t count = 0; count < len; count++)
     {
-        res = read(serdev,&buf[count],1);
+        res = read(serdev,&rsp[count],1);
     }
 
     return 0;
@@ -138,22 +140,24 @@ void init()
 
 int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
 {
-    buf[0] = CMD_WRITE;
-    if (send(buf, 1) != 0) 
+    uint8_t send_buf[4];
+    send_buf[0] = CMD_WRITE;
+
+    if (send(send_buf, 1) != 0) 
     {
         printf("invalid response\n\r");
         return -1;
     }
     
-    wordToBytes(buf, base);
-    if (send(buf, 4) != 0) 
+    wordToBytes(send_buf, dest_addr);
+    if (send(send_buf, 4) != 0) 
     {
         printf("invalid response\n\r");
         return -1;
     }
 
-    wordToBytes(buf, st.st_size);
-    if (send(buf, 4) != 0)
+    wordToBytes(send_buf, len);
+    if (send(send_buf, 4) != 0)
     {
         printf("invalid response\n\r");
         return -1;
@@ -162,6 +166,7 @@ int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
     if(send(data, len) != 0)
     {
         printf("Send error\n");
+        perror("serial: ");
         return -1;
     }
 
@@ -171,6 +176,7 @@ int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
 int main(int argc, const char **argv)
 {   
     uint8_t tmp;
+    uint32_t data_offset;
 
     process_args(argc, argv);    
     init();
@@ -184,18 +190,22 @@ int main(int argc, const char **argv)
     
     printf("Waiting for device\n\r");
     buf[0] = CMD_CHKRDY;
-    if (send(buf, 1) == 0)
-    {
-        printf("sending data\n\r");
-    }
-    else
+    if (send(buf, 1) != 0)
     { 
         printf("invalid response\n\r");
         terminate(-1);
     }
     
-    tmp = send_block(file_data, base, st.st_size);
-    if(tmp != 0) terminate(tmp);
+    printf("sending data: \n\r");
+    for(data_offset = 0; data_offset < st.st_size; data_offset += 256)
+    {
+        uint32_t send_size = st.st_size - data_offset;
+        if(send_size > BLOCK_SIZE) send_size = BLOCK_SIZE;
+
+        tmp = send_block(&file_data[data_offset], base + data_offset, send_size);
+        if(tmp != 0) terminate(tmp);
+        printf(".");
+    }
 
     printf("Running program \n\r");
     buf[0] = CMD_JUMP;
