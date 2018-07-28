@@ -136,10 +136,51 @@ void init()
     tcsetattr(fd,TCSANOW,&newtio);
 }
 
+int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
+{
+    buf[0] = CMD_WRITE;
+    if (send(buf, 1) != 0) 
+    {
+        printf("invalid response\n\r");
+        return -1;
+    }
+    
+    wordToBytes(buf, base);
+    if (send(buf, 4) != 0) 
+    {
+        printf("invalid response\n\r");
+        return -1;
+    }
+
+    wordToBytes(buf, st.st_size);
+    if (send(buf, 4) != 0)
+    {
+        printf("invalid response\n\r");
+        return -1;
+    }
+
+    if(send(data, len) != 0)
+    {
+        printf("Send error\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 int main(int argc, const char **argv)
 {   
+    uint8_t tmp;
+
     process_args(argc, argv);    
     init();
+
+    file_data = malloc(st.st_size);
+    if(fread(file_data, 1, st.st_size, fd_data) != st.st_size)
+    {
+        fputs ("File read error\n\r",stderr); 
+        terminate(-1);
+    }
     
     printf("Waiting for device\n\r");
     buf[0] = CMD_CHKRDY;
@@ -153,39 +194,8 @@ int main(int argc, const char **argv)
         terminate(-1);
     }
     
-    buf[0] = CMD_WRITE;
-    if (send(buf, 1) != 0) 
-    {
-        printf("invalid response\n\r");
-        terminate(-1);
-    }
-    
-    wordToBytes(buf, base);
-    if (send(buf, 4) != 0) 
-    {
-        printf("invalid response\n\r");
-        terminate(-1);
-    }
-
-    wordToBytes(buf, st.st_size);
-    if (send(buf, 4) != 0)
-    {
-        printf("invalid response\n\r");
-        terminate(-1);
-    }
-
-    file_data = malloc(st.st_size);
-    if(fread(file_data, 1, st.st_size, fd_data) != st.st_size)
-    {
-        fputs ("File read error\n\r",stderr); 
-        terminate(-1);
-    }
-
-    if(send(file_data, st.st_size) != 0)
-    {
-        printf("Send error\n");
-        terminate(-1);
-    }
+    tmp = send_block(file_data, base, st.st_size);
+    if(tmp != 0) terminate(tmp);
 
     printf("Running program \n\r");
     buf[0] = CMD_JUMP;
