@@ -14,6 +14,7 @@
   
 #define BAUDRATE B9600
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
+#define DEFAULT_BASE 0x1000000
 
 uint32_t base = 0x10000000;
 int serdev;
@@ -84,6 +85,7 @@ void process_args(int argc, const char **argv)
         OPT_GROUP("Basic options"),
         OPT_STRING('f', "file", &file, "path to input file"),
         OPT_STRING('p', "port", &port, "serial device"),
+        OPT_INTEGER('b', "base", &base, "base address"),
         OPT_END()
     };
 
@@ -171,7 +173,7 @@ int main(int argc, const char **argv)
     printf("%x \n", buf[3]);
     if (send(buf, 4) == 0) 
     {
-        printf("base adr ack\n");
+        printf("dest addr: %x\n", base);
     }
     else
     {
