@@ -222,11 +222,5 @@ int main(int argc, const char **argv)
         terminate(-1);
     }
 
-    while(1)
-    {
-        res = read(serdev,buf,1);
-        printf("%x \n\r", buf[0]);
-    }
-
     terminate(0);
 }
