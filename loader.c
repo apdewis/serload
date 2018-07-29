@@ -12,7 +12,7 @@
 
 #include "commands.h"
   
-#define BAUDRATE B9600
+#define BAUDRATE B115200
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define DEFAULT_BASE 0x1000000
 #define BLOCK_SIZE 256
@@ -220,6 +220,12 @@ int main(int argc, const char **argv)
     {
         printf("invalid response\n");
         terminate(-1);
+    }
+
+    while(1)
+    {
+        res = read(serdev,buf,1);
+        printf("%x \n\r", buf[0]);
     }
 
     terminate(0);
