@@ -15,11 +15,11 @@
 #define BAUDRATE B921600
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define DEFAULT_BASE 0x40000000
-#define BLOCK_SIZE 256
+#define BLOCK_SIZE 655536
 
 uint32_t base = DEFAULT_BASE;
 int serdev;
-uint8_t buf[256];
+uint8_t buf[BLOCK_SIZE];
 int fd, c, res;
 FILE *fd_data;
 struct termios oldtio,newtio;
@@ -201,14 +201,14 @@ int main(int argc, const char **argv)
     }
     
     printf("sending data: \n\r");
-    for(data_offset = 0; data_offset < st.st_size; data_offset += 256)
+    for(data_offset = 0; data_offset < st.st_size; data_offset += BLOCK_SIZE)
     {
         uint32_t send_size = st.st_size - data_offset;
         if(send_size > BLOCK_SIZE) send_size = BLOCK_SIZE;
 
         tmp = send_block(&file_data[data_offset], base + data_offset, send_size);
         if(tmp != 0) terminate(tmp);
-        if(st.st_size - data_offset < 256)
+        if(st.st_size - data_offset < BLOCK_SIZE)
         {
             printf("Sent (%d) \n\r", st.st_size);
         }
