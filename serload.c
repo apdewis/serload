@@ -25,6 +25,7 @@ FILE *fd_data;
 struct termios oldtio,newtio;
 const char *port = NULL;
 const char *file = NULL;
+uint8_t *run = NULL;
 struct stat st;
 uint8_t *file_data;
 
@@ -88,6 +89,7 @@ void process_args(int argc, const char **argv)
         OPT_STRING('f', "file", &file, "path to input file"),
         OPT_STRING('p', "port", &port, "serial device"),
         OPT_INTEGER('b', "base", &base, "base address"),
+        OPT_BOOLEAN('r', "run", &run, "run on completion"),
         OPT_END()
     };
 
@@ -219,20 +221,23 @@ int main(int argc, const char **argv)
         fflush(stdout);
     }
 
-    //printf("Running program \n\r");
-    //buf[0] = CMD_JUMP;
-    //if (send(buf, 1) != 0) 
-    //{
-    //    printf("invalid response\n");
-    //    terminate(-1);
-    //}
+    if(run)
+    {
+        printf("Running program \n\r");
+        buf[0] = CMD_JUMP;
+        if (send(buf, 1) != 0) 
+        {
+            printf("invalid response\n");
+            terminate(-1);
+        }
     
-    //wordToBytes(buf, base);
-    //if (send(buf, 4) != 0) 
-    //{
-    //    printf("invalid response\n");
-    //    terminate(-1);
-    //}
+        wordToBytes(buf, base);
+        if (send(buf, 4) != 0) 
+        {
+            printf("invalid response\n");
+            terminate(-1);
+        }
+    }
 
     terminate(0);
 }
