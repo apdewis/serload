@@ -31,7 +31,6 @@ uint8_t *file_data;
 
 static const char *const usage[] = 
 {
-    "serload [options] [[--] args]",
     "serload [options]",
     NULL,
 };
