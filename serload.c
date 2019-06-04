@@ -28,6 +28,7 @@ const char *file = NULL;
 uint8_t *run = NULL;
 struct stat st;
 uint8_t *file_data;
+uint8_t revert_tc = 0;
 
 static const char *const usage[] = 
 {
@@ -37,12 +38,12 @@ static const char *const usage[] =
 
 void terminate(int code)
 {
-    tcsetattr(fd,TCSANOW,&oldtio);
+    if(revert_tc) tcsetattr(fd,TCSANOW,&oldtio);
     if(file_data)
     {
         free(file_data);
     }
-    exit(code);
+    return code;
 }
 
 int8_t send(uint8_t *buf, uint32_t len)
@@ -80,7 +81,7 @@ void wordToBytes(uint8_t *buf, uint32_t word)
     buf[3] = (uint8_t)(word >> 24);
 }
 
-void process_args(int argc, const char **argv)
+int process_args(int argc, const char **argv)
 {
     struct argparse_option options[] = {
         OPT_HELP(),
@@ -101,15 +102,17 @@ void process_args(int argc, const char **argv)
     {
         argparse_usage(&argparse);
         printf("filename required\n");
-        terminate(-1);
+        return -1;
     }
 
     if(port == NULL)
     {
         argparse_usage(&argparse);
         printf("serial device required\n");
-        terminate(-1);
+        return -1;
     }
+
+    return 0;
 }
 
 void init()
@@ -137,6 +140,7 @@ void init()
     
     tcflush(fd, TCIFLUSH);
     tcsetattr(fd,TCSANOW,&newtio);
+    revert_tc = 1;
 }
 
 int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
@@ -179,7 +183,10 @@ int main(int argc, const char **argv)
     uint8_t tmp;
     uint32_t data_offset;
 
-    process_args(argc, argv);    
+    if(process_args(argc, argv) != 0)
+    {
+        terminate(-1);
+    }    
     init();
 
     file_data = malloc(st.st_size);
