@@ -208,7 +208,15 @@ int main(int argc, const char **argv)
 
         tmp = send_block(&file_data[data_offset], base + data_offset, send_size);
         if(tmp != 0) terminate(tmp);
-        printf(".");
+        if(st.st_size - data_offset < 256)
+        {
+            printf("Sent (%d) \n\r", st.st_size);
+        }
+        else 
+        {
+            printf("sent (%d of %d) \r", data_offset, st.st_size);
+        }
+        fflush(stdout);
     }
 
     //printf("Running program \n\r");
