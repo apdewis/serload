@@ -12,7 +12,7 @@
 
 #include "commands.h"
   
-#define BAUDRATE B115200
+#define BAUDRATE B921600
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define DEFAULT_BASE 0x40000000
 #define BLOCK_SIZE 256
