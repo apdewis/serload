@@ -166,15 +166,11 @@ int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
         return -1;
     }
 
-    //printf("%x \n \r", data[1]); terminate(1);
-
-    send(data, len);
-    //if(send(data, len) != 0)
-    //{
-    //    printf("Send error\n");
-    //    perror("serial: ");
-    //    return -1;
-    //}
+    if(send(data, len) != 0)
+    {
+        printf("Send error\n");
+        return -1;
+    }
 
     return 0;
 }
