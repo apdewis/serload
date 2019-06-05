@@ -1,7 +1,7 @@
 project(serload)
 include_directories(../argparse)
 link_directories(../argparse)
-
+set(CMAKE_EXE_LINKER_FLAGS "-static")
 add_executable(${PROJECT_NAME} serload.c)
-target_link_libraries(serload argparse m c)
+target_link_libraries(${PROJECT_NAME} argparse m c)
 install(TARGETS ${PROJECT_NAME} DESTINATION host/bin)
