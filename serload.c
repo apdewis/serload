@@ -46,7 +46,7 @@ void terminate(int code)
     {
         free(file_data);
     }
-    return code;
+    exit(code);
 }
 
 int8_t cmd_send(uint8_t *buf, uint32_t len)
