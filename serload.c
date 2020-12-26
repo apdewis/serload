@@ -10,9 +10,11 @@
 #include <stdint.h>
 #include <argparse.h>
 
+#include <libserialport.h>
+
 #include "commands.h"
   
-#define BAUDRATE B921600
+#define BAUDRATE B115200
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define DEFAULT_BASE 0x40000000
 #define BLOCK_SIZE 655536
@@ -29,6 +31,9 @@ uint8_t *run = NULL;
 struct stat st;
 uint8_t *file_data;
 uint8_t revert_tc = 0;
+
+struct sp_port *serial_port;
+int check(enum sp_return result);
 
 static const char *const usage[] = 
 {
@@ -48,10 +53,13 @@ void terminate(int code)
 
 int8_t send(uint8_t *buf, uint32_t len)
 {
-    int32_t res;
     uint8_t rsp;
-    res = write(serdev,buf,len);
-    res = read(serdev,&rsp,1);
+    int result;
+
+    printf("writing\n");
+    result = check(sp_blocking_write(serial_port, buf, len, 5000));
+    printf("reading\n");
+    result = check(sp_blocking_read(serial_port, &rsp, 1, 5000));
     if(rsp == ACK)
     {
         return 0;
@@ -64,11 +72,8 @@ int8_t send(uint8_t *buf, uint32_t len)
 
 int8_t recv(uint8_t *rsp, uint32_t len)
 {
-    int32_t res;
-    for(uint8_t count = 0; count < len; count++)
-    {
-        res = read(serdev,&rsp[count],1);
-    }
+    int result;
+    result = check(sp_blocking_read(serial_port, &rsp, len, 5000));
 
     return 0;
 }
@@ -117,30 +122,22 @@ int process_args(int argc, const char **argv)
 
 void init()
 {
-    serdev = open(port, O_RDWR | O_NOCTTY  ); 
-    if (serdev <0) {perror(port); exit(-1); }
-    
+    //open specified data file
     fd_data = fopen(file, "rb");
     if (fd_data == NULL) {perror("FILE"); exit(-1); }
-
     if (stat(file, &st) != 0) {perror("ST"); exit(-1); }
 
-    tcgetattr(fd,&oldtio); /* save current port settings */
-    
-    bzero(&newtio, sizeof(newtio));
-    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
-    newtio.c_iflag = IGNPAR;
-    newtio.c_oflag = 0;
-    
-    /* set input mode (non-canonical, no echo,...) */
-    newtio.c_lflag = 0;
-    
-    newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
-    newtio.c_cc[VMIN]     = 1;   /* blocking read until 5 chars received */
-    
-    tcflush(fd, TCIFLUSH);
-    tcsetattr(fd,TCSANOW,&newtio);
-    revert_tc = 1;
+    check(sp_get_port_by_name(port, &serial_port));
+
+    printf("Opening port.\n");
+    check(sp_open(serial_port, SP_MODE_READ_WRITE));
+
+    printf("Setting port to 115200 8N1, no flow control.\n");
+    check(sp_set_baudrate(serial_port, 115200));
+    check(sp_set_bits(serial_port, 8));
+    check(sp_set_parity(serial_port, SP_PARITY_NONE));
+    check(sp_set_stopbits(serial_port, 1));
+    check(sp_set_flowcontrol(serial_port, SP_FLOWCONTROL_NONE));
 }
 
 int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
@@ -189,6 +186,7 @@ int main(int argc, const char **argv)
     }    
     init();
 
+    printf("file size: %d \n", st.st_size);
     file_data = malloc(st.st_size);
     if(fread(file_data, 1, st.st_size, fd_data) != st.st_size)
     {
@@ -242,4 +240,31 @@ int main(int argc, const char **argv)
     }
 
     terminate(0);
+}
+
+/* Helper function for error handling. */
+int check(enum sp_return result)
+{
+        /* For this example we'll just exit on any error by calling abort(). */
+        char *error_message;
+
+        switch (result) {
+        case SP_ERR_ARG:
+                printf("Error: Invalid argument.\n");
+                abort();
+        case SP_ERR_FAIL:
+                error_message = sp_last_error_message();
+                printf("Error: Failed: %s\n", error_message);
+                sp_free_error_message(error_message);
+                abort();
+        case SP_ERR_SUPP:
+                printf("Error: Not supported.\n");
+                abort();
+        case SP_ERR_MEM:
+                printf("Error: Couldn't allocate memory.\n");
+                abort();
+        case SP_OK:
+        default:
+                return result;
+        }
 }
