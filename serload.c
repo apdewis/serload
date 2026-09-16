@@ -8,7 +8,8 @@
 #include <strings.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <argparse.h>
+#include <limits.h>
+#include "argparse.h"
 
 #include <libserialport.h>
 
@@ -48,18 +49,27 @@ void terminate(int code)
     {
         free(file_data);
     }
-    return code;
+    exit(code);
 }
 
 int8_t send(uint8_t *buf, uint32_t len)
 {
-    uint8_t rsp;
+    uint8_t rsp = 0;
     int result;
 
     printf("writing\n");
-    result = check(sp_blocking_write(serial_port, buf, len, 5000));
+    result = sp_blocking_write(serial_port, buf, len, UINT_MAX);
+    printf("%d \n", result);
+    if (result < 0) { check(result); return -1; }
+    if ((uint32_t)result != len) { printf("Short write\n"); return -1; }
+
     printf("reading\n");
-    result = check(sp_blocking_read(serial_port, &rsp, 1, 5000));
+    fflush(stdout);
+    result = sp_blocking_read(serial_port, &rsp, 1, UINT_MAX);
+      
+    if (result < 0) { check(result); return -1; }
+    if (result != 1) { printf("Read failed\n"); return -1; }
+    printf("%d \n", rsp);
     if(rsp == ACK)
     {
         return 0;
@@ -73,7 +83,9 @@ int8_t send(uint8_t *buf, uint32_t len)
 int8_t recv(uint8_t *rsp, uint32_t len)
 {
     int result;
-    result = check(sp_blocking_read(serial_port, &rsp, len, 5000));
+    result = sp_blocking_read(serial_port, rsp, len, UINT_MAX);
+    if (result < 0) { check(result); return -1; }
+    if ((uint32_t)result != len) { printf("Read failed\n"); return -1; }
 
     return 0;
 }
@@ -175,8 +187,71 @@ int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
     return 0;
 }
 
+int read_block(uint8_t *dest, uint32_t src_addr, uint32_t len)
+{
+    uint8_t send_buf[4];
+    send_buf[0] = CMD_READ;
+
+    if (send(send_buf, 1) != 0)
+    {
+        printf("invalid response\n\r");
+        return -1;
+    }
+
+    wordToBytes(send_buf, src_addr);
+    if (send(send_buf, 4) != 0)
+    {
+        printf("invalid response\n\r");
+        return -1;
+    }
+
+    wordToBytes(send_buf, len);
+    if (send(send_buf, 4) != 0)
+    {
+        printf("invalid response\n\r");
+        return -1;
+    }
+
+    if (recv(dest, len) != 0)
+    {
+        printf("Read error\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+int verify_block(uint8_t *expected, uint32_t src_addr, uint32_t len)
+{
+    uint32_t i;
+    uint32_t mismatches = 0;
+
+    if (read_block(buf, src_addr, len) != 0)
+    {
+        return -1;
+    }
+
+    for (i = 0; i < len; i++)
+    {
+        if (buf[i] != expected[i])
+        {
+            printf("Verify mismatch at 0x%08x: wrote 0x%02x, read 0x%02x\n\r",
+                   src_addr + i, expected[i], buf[i]);
+            mismatches++;
+        }
+    }
+
+    if (mismatches != 0)
+    {
+        printf("%u byte(s) differ\n\r", mismatches);
+        return -1;
+    }
+
+    return 0;
+}
+
 int main(int argc, const char **argv)
-{   
+{
     uint8_t tmp;
     uint32_t data_offset;
 
@@ -217,6 +292,29 @@ int main(int argc, const char **argv)
         else 
         {
             printf("sent (%d of %d) \r", data_offset, st.st_size);
+        }
+        fflush(stdout);
+    }
+
+    printf("\n\rverifying data: \n\r");
+    for(data_offset = 0; data_offset < st.st_size; data_offset += BLOCK_SIZE)
+    {
+        uint32_t verify_size = st.st_size - data_offset;
+        if(verify_size > BLOCK_SIZE) verify_size = BLOCK_SIZE;
+
+        tmp = verify_block(&file_data[data_offset], base + data_offset, verify_size);
+        if(tmp != 0)
+        {
+            printf("Verification failed\n\r");
+            terminate(-1);
+        }
+        if(st.st_size - data_offset < BLOCK_SIZE)
+        {
+            printf("Verified (%d) \n\r", st.st_size);
+        }
+        else
+        {
+            printf("verified (%d of %d) \r", data_offset, st.st_size);
         }
         fflush(stdout);
     }
