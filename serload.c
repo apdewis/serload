@@ -288,36 +288,21 @@ int main(int argc, const char **argv)
 
         tmp = send_block(&file_data[data_offset], base + data_offset, send_size);
         if(tmp != 0) terminate(tmp);
-        if(st.st_size - data_offset < BLOCK_SIZE)
-        {
-            printf("Sent (%d) \n\r", st.st_size);
-        }
-        else 
-        {
-            printf("sent (%d of %d) \r", data_offset, st.st_size);
-        }
-        fflush(stdout);
-    }
 
-    printf("\n\rverifying data: \n\r");
-    for(data_offset = 0; data_offset < st.st_size; data_offset += BLOCK_SIZE)
-    {
-        uint32_t verify_size = st.st_size - data_offset;
-        if(verify_size > BLOCK_SIZE) verify_size = BLOCK_SIZE;
-
-        tmp = verify_block(&file_data[data_offset], base + data_offset, verify_size);
+        tmp = verify_block(&file_data[data_offset], base + data_offset, send_size);
         if(tmp != 0)
         {
             printf("Verification failed\n\r");
             terminate(-1);
         }
+
         if(st.st_size - data_offset < BLOCK_SIZE)
         {
-            printf("Verified (%d) \n\r", st.st_size);
+            printf("Sent and verified (%d) \n\r", st.st_size);
         }
         else
         {
-            printf("verified (%d of %d) \r", data_offset, st.st_size);
+            printf("sent and verified (%d of %d) \r", data_offset, st.st_size);
         }
         fflush(stdout);
     }
