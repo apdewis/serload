@@ -18,7 +18,7 @@
 #define BAUDRATE B115200
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define DEFAULT_BASE 0x40000000
-#define BLOCK_SIZE 655536
+#define BLOCK_SIZE 4096
 
 uint32_t base = DEFAULT_BASE;
 int serdev;
@@ -150,6 +150,9 @@ void init()
     check(sp_set_parity(serial_port, SP_PARITY_NONE));
     check(sp_set_stopbits(serial_port, 1));
     check(sp_set_flowcontrol(serial_port, SP_FLOWCONTROL_NONE));
+
+    printf("Flushing port buffers.\n");
+    check(sp_flush(serial_port, SP_BUF_BOTH));
 }
 
 int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
