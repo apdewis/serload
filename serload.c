@@ -18,7 +18,23 @@
 #define BAUDRATE B115200
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define DEFAULT_BASE 0x40000000
-#define BLOCK_SIZE 4096
+#define BLOCK_SIZE 512
+#define BLOCK_ATTEMPTS 50
+
+/* send() return codes */
+#define SEND_OK    0
+#define SEND_ERR  -1   /* transport failure */
+#define SEND_NACK -2   /* far end NACKed: parity error, retry the block */
+
+/* recv() return codes */
+#define RECV_OK      0
+#define RECV_ERR    -1   /* transport failure */
+#define RECV_PARITY -2   /* parity error on an inbound byte, retry the fetch */
+
+/* read_block()/verify_block() return codes */
+#define READ_OK      0
+#define READ_ERR    -1   /* transport failure or verify mismatch */
+#define READ_PARITY -2   /* parity error reading the block back, retry the fetch */
 
 uint32_t base = DEFAULT_BASE;
 int serdev;
@@ -35,6 +51,7 @@ uint8_t revert_tc = 0;
 
 struct sp_port *serial_port;
 int check(enum sp_return result);
+int8_t recv(uint8_t *rsp, uint32_t len);
 
 static const char *const usage[] = 
 {
@@ -57,37 +74,76 @@ int8_t send(uint8_t *buf, uint32_t len)
     uint8_t rsp = 0;
     int result;
 
-    printf("writing\n");
     result = sp_blocking_write(serial_port, buf, len, UINT_MAX);
-    printf("%d \n", result);
-    if (result < 0) { check(result); return -1; }
-    if ((uint32_t)result != len) { printf("Short write\n"); return -1; }
+    if (result < 0) { check(result); return SEND_ERR; }
+    if ((uint32_t)result != len) { printf("Short write\n"); return SEND_ERR; }
 
-    printf("reading\n");
-    fflush(stdout);
-    result = sp_blocking_read(serial_port, &rsp, 1, UINT_MAX);
-      
-    if (result < 0) { check(result); return -1; }
-    if (result != 1) { printf("Read failed\n"); return -1; }
-    printf("%d \n", rsp);
+    /* Read the status byte through the de-framer; a parity error on the
+     * status byte itself is unrecoverable here, so fail the block and retry. */
+    if (recv(&rsp, 1) != RECV_OK) { return SEND_ERR; }
+
     if(rsp == ACK)
     {
-        return 0;
+        return SEND_OK;
+    }
+    else if(rsp == NACK)
+    {
+        return SEND_NACK;
     }
     else
     {
-        return -1;
+        return SEND_ERR;
     }
 }
 
+/* Read exactly len de-framed payload bytes into rsp, decoding the PARMRK
+ * escaping set up in init(). Returns RECV_OK on success, RECV_PARITY if any
+ * inbound byte had a parity error, RECV_ERR on a transport failure. */
 int8_t recv(uint8_t *rsp, uint32_t len)
 {
+    uint32_t got = 0;
     int result;
-    result = sp_blocking_read(serial_port, rsp, len, UINT_MAX);
-    if (result < 0) { check(result); return -1; }
-    if ((uint32_t)result != len) { printf("Read failed\n"); return -1; }
+    uint8_t b;
 
-    return 0;
+    while (got < len)
+    {
+        result = sp_blocking_read(serial_port, &b, 1, UINT_MAX);
+        if (result < 0) { check(result); return RECV_ERR; }
+        if (result != 1) { printf("Read failed\n"); return RECV_ERR; }
+
+        if (b != 0xFF)
+        {
+            /* ordinary byte */
+            rsp[got++] = b;
+            continue;
+        }
+
+        /* 0xFF is the PARMRK escape lead-in; read the next byte to classify */
+        result = sp_blocking_read(serial_port, &b, 1, UINT_MAX);
+        if (result < 0) { check(result); return RECV_ERR; }
+        if (result != 1) { printf("Read failed\n"); return RECV_ERR; }
+
+        if (b == 0xFF)
+        {
+            /* \377 \377 -> a literal 0xFF data byte */
+            rsp[got++] = 0xFF;
+        }
+        else if (b == 0x00)
+        {
+            /* \377 \0 <byte> -> parity error on <byte>; consume it and bail */
+            result = sp_blocking_read(serial_port, &b, 1, UINT_MAX);
+            if (result < 0) { check(result); return RECV_ERR; }
+            return RECV_PARITY;
+        }
+        else
+        {
+            /* not a framing sequence we expect */
+            printf("Unexpected framing byte 0x%02x\n\r", b);
+            return RECV_ERR;
+        }
+    }
+
+    return RECV_OK;
 }
 
 void wordToBytes(uint8_t *buf, uint32_t word)
@@ -144,12 +200,23 @@ void init()
     printf("Opening port.\n");
     check(sp_open(serial_port, SP_MODE_READ_WRITE));
 
-    printf("Setting port to 115200 8N1, no flow control.\n");
+    printf("Setting port to 115200 8E1, no flow control.\n");
     check(sp_set_baudrate(serial_port, 115200));
     check(sp_set_bits(serial_port, 8));
-    check(sp_set_parity(serial_port, SP_PARITY_NONE));
+    check(sp_set_parity(serial_port, SP_PARITY_EVEN));
     check(sp_set_stopbits(serial_port, 1));
     check(sp_set_flowcontrol(serial_port, SP_FLOWCONTROL_NONE));
+
+    /* Mark inbound parity errors so recv() can detect them. With INPCK on,
+     * IGNPAR off and PARMRK on, a byte received with a parity error is
+     * delivered as the three-byte sequence \377 \0 <byte>; a genuine \377
+     * in the data is doubled to \377 \377. libserialport doesn't expose
+     * PARMRK, so set it directly on the underlying fd. */
+    check(sp_get_port_handle(serial_port, &fd));
+    if (tcgetattr(fd, &newtio) != 0) { perror("tcgetattr"); exit(-1); }
+    newtio.c_iflag |= (INPCK | PARMRK);
+    newtio.c_iflag &= ~IGNPAR;
+    if (tcsetattr(fd, TCSANOW, &newtio) != 0) { perror("tcsetattr"); exit(-1); }
 
     printf("Flushing port buffers.\n");
     check(sp_flush(serial_port, SP_BUF_BOTH));
@@ -158,78 +225,104 @@ void init()
 int send_block(uint8_t *data, uint32_t dest_addr, uint32_t len)
 {
     uint8_t send_buf[4];
-    int count = 0;
+    int8_t r;
     send_buf[0] = CMD_WRITE;
 
-    if (send(send_buf, 1) != 0) 
+    r = send(send_buf, 1);
+    if (r == SEND_NACK) return SEND_NACK;
+    if (r != SEND_OK)
     {
         printf("invalid response\n\r");
-        return -1;
+        return SEND_ERR;
     }
-    
+
     wordToBytes(send_buf, dest_addr);
-    if (send(send_buf, 4) != 0) 
+    r = send(send_buf, 4);
+    if (r == SEND_NACK) return SEND_NACK;
+    if (r != SEND_OK)
     {
         printf("invalid response\n\r");
-        return -1;
+        return SEND_ERR;
     }
 
     wordToBytes(send_buf, len);
-    if (send(send_buf, 4) != 0)
+    r = send(send_buf, 4);
+    if (r == SEND_NACK) return SEND_NACK;
+    if (r != SEND_OK)
     {
         printf("invalid response\n\r");
-        return -1;
+        return SEND_ERR;
     }
 
-    if(send(data, len) != 0)
+    r = send(data, len);
+    if (r == SEND_NACK) return SEND_NACK;
+    if (r != SEND_OK)
     {
         printf("Send error\n");
-        return -1;
+        return SEND_ERR;
     }
 
-    return 0;
+    return SEND_OK;
 }
 
 int read_block(uint8_t *dest, uint32_t src_addr, uint32_t len)
 {
     uint8_t send_buf[4];
+    int8_t r;
     send_buf[0] = CMD_READ;
 
-    if (send(send_buf, 1) != 0)
+    if (send(send_buf, 1) != SEND_OK)
     {
         printf("invalid response\n\r");
-        return -1;
+        return READ_ERR;
     }
 
     wordToBytes(send_buf, src_addr);
-    if (send(send_buf, 4) != 0)
+    if (send(send_buf, 4) != SEND_OK)
     {
         printf("invalid response\n\r");
-        return -1;
+        return READ_ERR;
     }
 
     wordToBytes(send_buf, len);
-    if (send(send_buf, 4) != 0)
+    if (send(send_buf, 4) != SEND_OK)
     {
         printf("invalid response\n\r");
-        return -1;
+        return READ_ERR;
     }
 
-    if (recv(dest, len) != 0)
+    r = recv(dest, len);
+    if (r == RECV_PARITY) return READ_PARITY;
+    if (r != RECV_OK)
     {
         printf("Read error\n");
-        return -1;
+        return READ_ERR;
     }
 
-    return 0;
+    return READ_OK;
 }
 
 int verify_block(uint8_t *expected, uint32_t src_addr, uint32_t len)
 {
     uint32_t i;
     uint32_t mismatches = 0;
+    uint32_t fetch;
+    int8_t r = READ_ERR;
 
-    if (read_block(buf, src_addr, len) != 0)
+    /* Fetch the block back for comparison. A parity error on the inbound
+     * data means the read-back itself was corrupted (not the written data),
+     * so flush and re-fetch rather than rewriting the block. */
+    for (fetch = 1; fetch <= BLOCK_ATTEMPTS; fetch++)
+    {
+        r = read_block(buf, src_addr, len);
+        if (r != READ_PARITY) break;
+
+        printf("Read-back at 0x%08x: parity error (fetch %d of %d), flushing and refetching\n\r",
+               src_addr, fetch, BLOCK_ATTEMPTS);
+        check(sp_flush(serial_port, SP_BUF_BOTH));
+    }
+
+    if (r != READ_OK)
     {
         return -1;
     }
@@ -255,7 +348,7 @@ int verify_block(uint8_t *expected, uint32_t src_addr, uint32_t len)
 
 int main(int argc, const char **argv)
 {
-    uint8_t tmp;
+    int8_t tmp;
     uint32_t data_offset;
 
     if(process_args(argc, argv) != 0)
@@ -283,16 +376,35 @@ int main(int argc, const char **argv)
     printf("sending data: \n\r");
     for(data_offset = 0; data_offset < st.st_size; data_offset += BLOCK_SIZE)
     {
+        uint32_t attempt;
         uint32_t send_size = st.st_size - data_offset;
         if(send_size > BLOCK_SIZE) send_size = BLOCK_SIZE;
 
-        tmp = send_block(&file_data[data_offset], base + data_offset, send_size);
-        if(tmp != 0) terminate(tmp);
+        for(attempt = 1; attempt <= BLOCK_ATTEMPTS; attempt++)
+        {
+            tmp = send_block(&file_data[data_offset], base + data_offset, send_size);
+            if(tmp == SEND_NACK)
+            {
+                /* Far end reported a parity error mid-transfer. Flush both
+                 * queues to discard the partially-received block and any
+                 * pending status bytes, then retry. */
+                printf("Block at 0x%08x: parity error (attempt %d of %d), flushing and retrying\n\r",
+                       base + data_offset, attempt, BLOCK_ATTEMPTS);
+                check(sp_flush(serial_port, SP_BUF_BOTH));
+                continue;
+            }
+            if(tmp == SEND_OK)
+            {
+                tmp = verify_block(&file_data[data_offset], base + data_offset, send_size);
+            }
+            if(tmp == SEND_OK) break;
 
-        tmp = verify_block(&file_data[data_offset], base + data_offset, send_size);
+            printf("Block at 0x%08x failed (attempt %d of %d)\n\r",
+                   base + data_offset, attempt, BLOCK_ATTEMPTS);
+        }
         if(tmp != 0)
         {
-            printf("Verification failed\n\r");
+            printf("Block failed after %d attempts, giving up\n\r", BLOCK_ATTEMPTS);
             terminate(-1);
         }
 
